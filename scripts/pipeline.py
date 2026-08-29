@@ -48,9 +48,6 @@ def download(url, outdir):
     cmd = [
         "yt-dlp", "-f", "bv*[height<=1080]+ba/b[height<=1080]",
         "--merge-output-format", "mp4",
-        # GitHub Actions IPs are commonly bot-checked by YouTube on the
-        # default web client; the android client skips that JS challenge.
-        "--extractor-args", "youtube:player_client=android,web",
         "-4",  # avoid flaky IPv6 on some runners
     ]
     cookies_path = write_cookies_file(outdir)
