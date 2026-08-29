@@ -25,14 +25,21 @@ def run(cmd):
 
 
 def write_cookies_file(outdir):
-    """If YTDLP_COOKIES_B64 is set (base64 of a Netscape-format cookies.txt),
-    decode it to a file and return its path. Otherwise return None."""
+    """Cookie source, in priority order:
+    - YTDLP_COOKIES: raw Netscape-format cookies.txt content, pasted as-is
+    - YTDLP_COOKIES_B64: base64 of the same (kept for compatibility)
+    Returns the path to a written cookies file, or None if neither is set."""
+    raw = os.environ.get("YTDLP_COOKIES")
     b64 = os.environ.get("YTDLP_COOKIES_B64")
-    if not b64:
+    if not raw and not b64:
         return None
     cookies_path = os.path.join(outdir, "cookies.txt")
-    with open(cookies_path, "wb") as f:
-        f.write(base64.b64decode(b64))
+    if raw:
+        with open(cookies_path, "w", encoding="utf-8", newline="\n") as f:
+            f.write(raw.strip() + "\n")
+    else:
+        with open(cookies_path, "wb") as f:
+            f.write(base64.b64decode(b64))
     return cookies_path
 
 
