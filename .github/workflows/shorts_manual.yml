@@ -1,0 +1,42 @@
+name: Create YouTube Shorts (manual link)
+
+on:
+  workflow_dispatch:
+    inputs:
+      video_url:
+        description: "YouTube video URL"
+        required: true
+      num_clips:
+        description: "Number of shorts to generate"
+        default: "3"
+      privacy:
+        description: "unlisted | public | private"
+        default: "unlisted"
+
+jobs:
+  build-and-upload:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Install Python deps
+        run: pip install -r requirements.txt
+
+      - name: Run pipeline
+        env:
+          YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
+          YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
+          YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
+        run: |
+          python scripts/pipeline.py \
+            --url "${{ github.event.inputs.video_url }}" \
+            --num-clips "${{ github.event.inputs.num_clips }}" \
+            --privacy "${{ github.event.inputs.privacy }}"
