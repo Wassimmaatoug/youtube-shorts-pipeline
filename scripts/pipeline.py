@@ -174,7 +174,7 @@ def main():
             print("No suitable segments found — video may be too short or too quiet.")
             sys.exit(1)
 
-        base_title = args.title_prefix or get_video_title(args.url)
+        base_title = args.title_prefix or get_video_title(args.url, cookies_path=write_cookies_file(workdir))
         for i, p in enumerate(picks, 1):
             clip_path = os.path.join(workdir, f"short_{i}.mp4")
             cut_vertical(src, p["start"], p["end"], clip_path)
