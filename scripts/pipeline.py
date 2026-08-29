@@ -48,6 +48,7 @@ def download(url, outdir):
     cmd = [
         "yt-dlp", "-f", "bv*[height<=1080]+ba/b[height<=1080]",
         "--merge-output-format", "mp4",
+        "--remote-components", "ejs:github",  # fetch yt-dlp's JS challenge solver
         "-4",  # avoid flaky IPv6 on some runners
     ]
     cookies_path = write_cookies_file(outdir)
