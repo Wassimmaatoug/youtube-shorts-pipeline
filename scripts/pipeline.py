@@ -25,13 +25,22 @@ def run(cmd):
 
 def download(url, outdir):
     out_tpl = os.path.join(outdir, "source.%(ext)s")
-    run([
+    r = run([
         "yt-dlp", "-f", "bv*[height<=1080]+ba/b[height<=1080]",
-        "--merge-output-format", "mp4", "-o", out_tpl, url,
+        "--merge-output-format", "mp4",
+        # GitHub Actions IPs are commonly bot-checked by YouTube on the
+        # default web client; the android client skips that JS challenge.
+        "--extractor-args", "youtube:player_client=android,web",
+        "-4",  # avoid flaky IPv6 on some runners
+        "-o", out_tpl, url,
     ])
     matches = glob.glob(os.path.join(outdir, "source.*"))
     if not matches:
-        raise RuntimeError("yt-dlp failed to download the video")
+        print("---- yt-dlp stderr ----")
+        print(r.stderr)
+        print("---- yt-dlp stdout ----")
+        print(r.stdout)
+        raise RuntimeError(f"yt-dlp failed to download the video (exit code {r.returncode})")
     return matches[0]
 
 
