@@ -31,6 +31,7 @@ jobs:
           YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
           YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
           WATCH_CHANNEL_ID: ${{ secrets.WATCH_CHANNEL_ID }}
+          YTDLP_COOKIES_B64: ${{ secrets.YTDLP_COOKIES_B64 }}
         run: python scripts/watch_channel.py
 
       - name: Commit updated state
