@@ -23,8 +23,11 @@ def get_service():
     return googleapiclient.discovery.build("youtube", "v3", credentials=creds)
 
 
-def get_video_title(url):
-    with yt_dlp.YoutubeDL({"quiet": True}) as ydl:
+def get_video_title(url, cookies_path=None):
+    opts = {"quiet": True}
+    if cookies_path:
+        opts["cookiefile"] = cookies_path
+    with yt_dlp.YoutubeDL(opts) as ydl:
         info = ydl.extract_info(url, download=False)
         return info.get("title", "Short")
 
