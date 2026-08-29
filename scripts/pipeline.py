@@ -6,6 +6,7 @@ Usage:
     python pipeline.py --url "<youtube_url>" --num-clips 3 --privacy unlisted
 """
 import argparse
+import base64
 import glob
 import os
 import re
@@ -23,17 +24,33 @@ def run(cmd):
     return subprocess.run(cmd, capture_output=True, text=True)
 
 
+def write_cookies_file(outdir):
+    """If YTDLP_COOKIES_B64 is set (base64 of a Netscape-format cookies.txt),
+    decode it to a file and return its path. Otherwise return None."""
+    b64 = os.environ.get("YTDLP_COOKIES_B64")
+    if not b64:
+        return None
+    cookies_path = os.path.join(outdir, "cookies.txt")
+    with open(cookies_path, "wb") as f:
+        f.write(base64.b64decode(b64))
+    return cookies_path
+
+
 def download(url, outdir):
     out_tpl = os.path.join(outdir, "source.%(ext)s")
-    r = run([
+    cmd = [
         "yt-dlp", "-f", "bv*[height<=1080]+ba/b[height<=1080]",
         "--merge-output-format", "mp4",
         # GitHub Actions IPs are commonly bot-checked by YouTube on the
         # default web client; the android client skips that JS challenge.
         "--extractor-args", "youtube:player_client=android,web",
         "-4",  # avoid flaky IPv6 on some runners
-        "-o", out_tpl, url,
-    ])
+    ]
+    cookies_path = write_cookies_file(outdir)
+    if cookies_path:
+        cmd += ["--cookies", cookies_path]
+    cmd += ["-o", out_tpl, url]
+    r = run(cmd)
     matches = glob.glob(os.path.join(outdir, "source.*"))
     if not matches:
         print("---- yt-dlp stderr ----")
