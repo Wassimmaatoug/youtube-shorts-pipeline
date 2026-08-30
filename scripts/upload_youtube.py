@@ -12,11 +12,32 @@ import yt_dlp
 
 
 def get_service():
+    client_id = os.environ.get("YT_CLIENT_ID", "")
+    client_secret = os.environ.get("YT_CLIENT_SECRET", "")
+    refresh_token = os.environ.get("YT_REFRESH_TOKEN", "")
+
+    # Sanity-check lengths only (never print the actual secret values).
+    print(f"[auth debug] YT_CLIENT_ID length={len(client_id)} "
+          f"ends_correctly={client_id.endswith('.apps.googleusercontent.com')}")
+    print(f"[auth debug] YT_CLIENT_SECRET length={len(client_secret)}")
+    print(f"[auth debug] YT_REFRESH_TOKEN length={len(refresh_token)}")
+
+    missing = [name for name, val in [
+        ("YT_CLIENT_ID", client_id),
+        ("YT_CLIENT_SECRET", client_secret),
+        ("YT_REFRESH_TOKEN", refresh_token),
+    ] if not val or len(val) < 10]
+    if missing:
+        raise RuntimeError(
+            f"These secrets are missing or look too short to be real: {missing}. "
+            "Check GitHub repo Settings -> Secrets and variables -> Actions."
+        )
+
     creds = google.oauth2.credentials.Credentials(
         token=None,
-        refresh_token=os.environ["YT_REFRESH_TOKEN"],
-        client_id=os.environ["YT_CLIENT_ID"],
-        client_secret=os.environ["YT_CLIENT_SECRET"],
+        refresh_token=refresh_token,
+        client_id=client_id,
+        client_secret=client_secret,
         token_uri="https://oauth2.googleapis.com/token",
         scopes=["https://www.googleapis.com/auth/youtube.upload"],
     )
