@@ -133,4 +133,4 @@ requirements.txt
 
 ## License
 
-Add a license of your choice (MIT is a common default for personal tooling like this).
+MIT License — Copyright (c) 2026 octopusiX. See the [LICENSE](LICENSE) file for full terms.
