@@ -45,44 +45,79 @@ def get_duration(path):
     return float(r.stdout.strip())
 
 
-def generate_script(topic, target_words=150):
+def call_gemini(prompt_text):
+    """Primary LLM source, if GEMINI_API_KEY is set. Free tier, no card required
+    (get a key at https://aistudio.google.com/apikey). Returns None if unavailable
+    or on any error — caller falls back to the next source."""
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        return None
+    model = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
     try:
-        prompt = (f"Write an engaging narration script of about {target_words} words "
-                  f"for a vertical short video about: {topic}. Break it into 5-8 short, "
-                  f"punchy sentences (one idea per sentence). Only output the narration "
-                  f"text itself, no titles, no formatting, no quotation marks, no numbering.")
-        url = "https://text.pollinations.ai/" + urllib.parse.quote(prompt)
-        r = requests.get(url, timeout=60)
+        r = requests.post(url, json={"contents": [{"parts": [{"text": prompt_text}]}]}, timeout=60)
         r.raise_for_status()
-        text = r.text.strip()
-        if len(text.split()) >= target_words * 0.5:
-            return text
-        print(f"Script came back too short ({len(text.split())} words), retrying once...")
-        r = requests.get(url, timeout=60)
-        r.raise_for_status()
-        text2 = r.text.strip()
-        if len(text2.split()) > len(text.split()):
-            return text2
-        return text
+        data = r.json()
+        return data["candidates"][0]["content"]["parts"][0]["text"].strip()
     except Exception as e:
-        print(f"Script generation failed, falling back to prompt as-is: {e}")
-    return topic
+        print(f"Gemini call failed, will try backup source: {e}")
+        return None
 
 
-def generate_more_facts(topic, already_said, target_words=60):
-    """Ask for additional distinct content when the video is running short."""
+def call_pollinations(prompt_text):
+    """Backup LLM source: free, unauthenticated, but no uptime guarantee."""
     try:
-        prompt = (f"Give {max(2, target_words // 25)} more short, interesting, distinct "
-                  f"facts or sentences about: {topic}. Do not repeat these already used "
-                  f"points: {already_said[:300]}. Only output the new sentences, no "
-                  f"numbering, no formatting.")
-        url = "https://text.pollinations.ai/" + urllib.parse.quote(prompt)
+        url = "https://text.pollinations.ai/" + urllib.parse.quote(prompt_text)
         r = requests.get(url, timeout=60)
         r.raise_for_status()
         return r.text.strip()
     except Exception as e:
-        print(f"Follow-up fact generation failed: {e}")
-        return ""
+        print(f"Pollinations call failed: {e}")
+        return None
+
+
+def call_llm(prompt_text):
+    """Tries Gemini first (if configured), then the free backup. Returns None
+    only if every source failed."""
+    return call_gemini(prompt_text) or call_pollinations(prompt_text)
+
+
+def generate_script(topic, target_words=150):
+    prompt = (f"Write an engaging narration script of about {target_words} words "
+              f"for a vertical short video about: {topic}. Break it into 5-8 short, "
+              f"punchy sentences (one idea per sentence). Only output the narration "
+              f"text itself, no titles, no formatting, no quotation marks, no numbering.")
+
+    text = call_llm(prompt)
+    if text and len(text.split()) >= target_words * 0.5:
+        return text
+
+    if text:
+        print(f"Script came back too short ({len(text.split())} words), retrying once...")
+    text2 = call_llm(prompt)
+    if text2 and (not text or len(text2.split()) > len(text.split())):
+        text = text2
+
+    if not text:
+        raise RuntimeError(
+            "Every script-writing source failed (Gemini and the free backup both "
+            "returned nothing). Not uploading anything for this run — check that "
+            "GEMINI_API_KEY is set and valid, or retry later if it's the free "
+            "backup service having downtime."
+        )
+    return text
+
+
+def generate_more_facts(topic, already_said, target_words=60):
+    """Ask for additional distinct content when the video is running short.
+    Returns empty string (not an error) if this fails — the caller treats
+    that as 'couldn't extend further' rather than a fatal problem, since we
+    already have a valid script at this point."""
+    prompt = (f"Give {max(2, target_words // 25)} more short, interesting, distinct "
+              f"facts or sentences about: {topic}. Do not repeat these already used "
+              f"points: {already_said[:300]}. Only output the new sentences, no "
+              f"numbering, no formatting.")
+    return call_llm(prompt) or ""
 
 
 def split_scenes(script):
