@@ -1,0 +1,42 @@
+name: Generate AI Video from Prompt
+
+on:
+  workflow_dispatch:
+    inputs:
+      prompt:
+        description: "What should the video be about?"
+        required: true
+      voice:
+        description: "edge-tts voice (e.g. en-US-AriaNeural, en-GB-RyanNeural, fr-FR-DeniseNeural)"
+        default: "en-US-AriaNeural"
+      privacy:
+        description: "unlisted | public | private"
+        default: "unlisted"
+
+jobs:
+  generate-and-upload:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install ffmpeg (with libass for captions)
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Install Python deps
+        run: pip install -r requirements.txt
+
+      - name: Generate and upload AI video
+        env:
+          YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
+          YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
+          YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
+        run: |
+          python scripts/generate_ai_video.py \
+            --prompt "${{ github.event.inputs.prompt }}" \
+            --voice "${{ github.event.inputs.voice }}" \
+            --privacy "${{ github.event.inputs.privacy }}"
