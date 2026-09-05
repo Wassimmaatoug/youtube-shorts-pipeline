@@ -45,6 +45,31 @@ def get_duration(path):
     return float(r.stdout.strip())
 
 
+_GEMINI_MODEL_CACHE = {"name": None}
+
+
+def pick_gemini_model(api_key):
+    """Ask the API which models are actually available to this key, instead
+    of hardcoding a model name that can go stale as Google renames/retires
+    models. Caches the result for the life of this process."""
+    if _GEMINI_MODEL_CACHE["name"]:
+        return _GEMINI_MODEL_CACHE["name"]
+    url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
+    r = requests.get(url, timeout=30)
+    r.raise_for_status()
+    models = r.json().get("models", [])
+    candidates = [m["name"] for m in models
+                  if "generateContent" in m.get("supportedGenerationMethods", [])]
+    if not candidates:
+        return None
+    # Prefer a "flash" model: fast and on the most generous free tier.
+    flash = [m for m in candidates if "flash" in m.lower()]
+    chosen = flash[0] if flash else candidates[0]
+    _GEMINI_MODEL_CACHE["name"] = chosen
+    print(f"Using Gemini model: {chosen}")
+    return chosen
+
+
 def call_gemini(prompt_text):
     """Primary LLM source, if GEMINI_API_KEY is set. Free tier, no card required
     (get a key at https://aistudio.google.com/apikey). Returns None if unavailable
@@ -52,10 +77,16 @@ def call_gemini(prompt_text):
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
         return None
-    model = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
     try:
+        model = os.environ.get("GEMINI_MODEL") or pick_gemini_model(api_key)
+        if not model:
+            print("Gemini: no models available to this API key.")
+            return None
+        model_path = model if model.startswith("models/") else f"models/{model}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/{model_path}:generateContent?key={api_key}"
         r = requests.post(url, json={"contents": [{"parts": [{"text": prompt_text}]}]}, timeout=60)
+        if r.status_code != 200:
+            print(f"Gemini error response: {r.text[:500]}")
         r.raise_for_status()
         data = r.json()
         return data["candidates"][0]["content"]["parts"][0]["text"].strip()
@@ -65,10 +96,14 @@ def call_gemini(prompt_text):
 
 
 def call_pollinations(prompt_text):
-    """Backup LLM source: free, unauthenticated, but no uptime guarantee."""
+    """Backup LLM source. Was free/unauthenticated; as of testing it now
+    sometimes returns 402 Payment Required for some requests, so treat this
+    as a secondary source only — Gemini should be the reliable primary."""
     try:
         url = "https://text.pollinations.ai/" + urllib.parse.quote(prompt_text)
         r = requests.get(url, timeout=60)
+        if r.status_code != 200:
+            print(f"Pollinations error response ({r.status_code}): {r.text[:300]}")
         r.raise_for_status()
         return r.text.strip()
     except Exception as e:
