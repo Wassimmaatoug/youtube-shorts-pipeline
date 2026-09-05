@@ -54,8 +54,8 @@ def pick_gemini_model(api_key):
     models. Caches the result for the life of this process."""
     if _GEMINI_MODEL_CACHE["name"]:
         return _GEMINI_MODEL_CACHE["name"]
-    url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
-    r = requests.get(url, timeout=30)
+    url = "https://generativelanguage.googleapis.com/v1beta/models"
+    r = requests.get(url, headers={"x-goog-api-key": api_key}, timeout=30)
     r.raise_for_status()
     models = r.json().get("models", [])
     candidates = [m["name"] for m in models
@@ -70,21 +70,41 @@ def pick_gemini_model(api_key):
     return chosen
 
 
-def call_gemini(prompt_text):
+def call_gemini(prompt_text, _retry_model=None):
     """Primary LLM source, if GEMINI_API_KEY is set. Free tier, no card required
     (get a key at https://aistudio.google.com/apikey). Returns None if unavailable
-    or on any error — caller falls back to the next source."""
+    or on any error — caller falls back to the next source.
+
+    Google's model list frequently outlives actual availability; when a model
+    is retired, their 404 response names the replacement directly (e.g. "use
+    models/gemini-3.6-flash instead") — so on a 404 we parse that out and
+    retry once with the suggested model, caching it for the rest of this run.
+    """
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
         return None
     try:
-        model = os.environ.get("GEMINI_MODEL") or pick_gemini_model(api_key)
+        model = _retry_model or os.environ.get("GEMINI_MODEL") or pick_gemini_model(api_key)
         if not model:
             print("Gemini: no models available to this API key.")
             return None
         model_path = model if model.startswith("models/") else f"models/{model}"
-        url = f"https://generativelanguage.googleapis.com/v1beta/{model_path}:generateContent?key={api_key}"
-        r = requests.post(url, json={"contents": [{"parts": [{"text": prompt_text}]}]}, timeout=60)
+        url = f"https://generativelanguage.googleapis.com/v1beta/{model_path}:generateContent"
+        r = requests.post(
+            url,
+            headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
+            json={"contents": [{"parts": [{"text": prompt_text}]}]},
+            timeout=60,
+        )
+
+        if r.status_code == 404 and _retry_model is None:
+            matches = re.findall(r"models/[a-zA-Z0-9_.\-]+", r.text)
+            replacement = next((m for m in matches if m != model_path), None)
+            if replacement:
+                print(f"Gemini: {model_path} unavailable, Google suggested {replacement} — retrying with it")
+                _GEMINI_MODEL_CACHE["name"] = replacement
+                return call_gemini(prompt_text, _retry_model=replacement)
+
         if r.status_code != 200:
             print(f"Gemini error response: {r.text[:500]}")
         r.raise_for_status()
@@ -96,9 +116,10 @@ def call_gemini(prompt_text):
 
 
 def call_pollinations(prompt_text):
-    """Backup LLM source. Was free/unauthenticated; as of testing it now
-    sometimes returns 402 Payment Required for some requests, so treat this
-    as a secondary source only — Gemini should be the reliable primary."""
+    """Backup LLM source. Was free/unauthenticated; Pollinations has since
+    deprecated their legacy text API for this kind of request (confirmed via
+    402 responses) — kept here only as a last-ditch attempt in case that
+    changes again. Gemini should be treated as the real primary source."""
     try:
         url = "https://text.pollinations.ai/" + urllib.parse.quote(prompt_text)
         r = requests.get(url, timeout=60)
