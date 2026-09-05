@@ -45,20 +45,44 @@ def get_duration(path):
     return float(r.stdout.strip())
 
 
-def generate_script(topic, max_words=70):
+def generate_script(topic, target_words=150):
     try:
-        prompt = (f"Write a short, engaging {max_words}-word narration script for a "
-                  f"vertical short video about: {topic}. Only output the narration "
-                  f"text itself, no titles, no formatting, no quotation marks.")
+        prompt = (f"Write an engaging narration script of about {target_words} words "
+                  f"for a vertical short video about: {topic}. Break it into 5-8 short, "
+                  f"punchy sentences (one idea per sentence). Only output the narration "
+                  f"text itself, no titles, no formatting, no quotation marks, no numbering.")
         url = "https://text.pollinations.ai/" + urllib.parse.quote(prompt)
         r = requests.get(url, timeout=60)
         r.raise_for_status()
         text = r.text.strip()
-        if text:
+        if len(text.split()) >= target_words * 0.5:
             return text
+        print(f"Script came back too short ({len(text.split())} words), retrying once...")
+        r = requests.get(url, timeout=60)
+        r.raise_for_status()
+        text2 = r.text.strip()
+        if len(text2.split()) > len(text.split()):
+            return text2
+        return text
     except Exception as e:
         print(f"Script generation failed, falling back to prompt as-is: {e}")
     return topic
+
+
+def generate_more_facts(topic, already_said, target_words=60):
+    """Ask for additional distinct content when the video is running short."""
+    try:
+        prompt = (f"Give {max(2, target_words // 25)} more short, interesting, distinct "
+                  f"facts or sentences about: {topic}. Do not repeat these already used "
+                  f"points: {already_said[:300]}. Only output the new sentences, no "
+                  f"numbering, no formatting.")
+        url = "https://text.pollinations.ai/" + urllib.parse.quote(prompt)
+        r = requests.get(url, timeout=60)
+        r.raise_for_status()
+        return r.text.strip()
+    except Exception as e:
+        print(f"Follow-up fact generation failed: {e}")
+        return ""
 
 
 def split_scenes(script):
@@ -142,7 +166,12 @@ def main():
     ap.add_argument("--prompt", required=True)
     ap.add_argument("--voice", default="en-US-AriaNeural")
     ap.add_argument("--privacy", default="unlisted", choices=["unlisted", "public", "private"])
-    ap.add_argument("--max-words", type=int, default=70)
+    ap.add_argument("--target-words", type=int, default=150,
+                     help="Roughly maps to seconds of narration at natural speaking pace.")
+    ap.add_argument("--min-duration", type=float, default=50.0,
+                     help="Keep requesting more content until narration reaches at least this many seconds.")
+    ap.add_argument("--max-duration", type=float, default=58.0,
+                     help="Stop adding scenes once this many seconds is reached, to stay a Short.")
     args = ap.parse_args()
 
     sys.path.insert(0, os.path.dirname(__file__))
@@ -150,7 +179,7 @@ def main():
 
     workdir = tempfile.mkdtemp()
     try:
-        script = generate_script(args.prompt, args.max_words)
+        script = generate_script(args.prompt, args.target_words)
         scenes = split_scenes(script)
         if not scenes:
             print("No scenes produced from the script.")
@@ -158,21 +187,52 @@ def main():
 
         clip_paths = []
         scenes_with_durations = []
-        for i, text in enumerate(scenes, 1):
-            audio_path = os.path.join(workdir, f"scene_{i}.mp3")
-            image_path = os.path.join(workdir, f"scene_{i}.png")
-            clip_path = os.path.join(workdir, f"scene_{i}.mp4")
 
+        def render_scene(text, index):
+            audio_path = os.path.join(workdir, f"scene_{index}.mp3")
+            image_path = os.path.join(workdir, f"scene_{index}.png")
+            clip_path = os.path.join(workdir, f"scene_{index}.mp4")
             generate_narration(text, audio_path, args.voice)
             dur = get_duration(audio_path)
             generate_image(text, image_path)
             make_scene_clip(image_path, audio_path, dur, clip_path)
+            return clip_path, dur
 
+        i = 0
+        for text in scenes:
+            i += 1
+            clip_path, dur = render_scene(text, i)
             clip_paths.append(clip_path)
             scenes_with_durations.append((text, dur))
 
         total_duration = sum(d for _, d in scenes_with_durations)
-        print(f"Total narrated duration: {total_duration:.1f}s "
+
+        # Keep the video from coming out too short: ask for more distinct
+        # content and render additional scenes until we hit min_duration,
+        # capped by max_duration and a retry limit so this can't loop forever.
+        attempts = 0
+        already_said = " ".join(t for t, _ in scenes_with_durations)
+        while total_duration < args.min_duration and attempts < 4:
+            attempts += 1
+            print(f"Only {total_duration:.1f}s so far, requesting more content "
+                  f"(attempt {attempts})...")
+            more = generate_more_facts(args.prompt, already_said,
+                                        target_words=int(args.min_duration - total_duration) * 3)
+            more_scenes = split_scenes(more)
+            if not more_scenes:
+                print("No additional content came back; stopping extension attempts.")
+                break
+            for text in more_scenes:
+                if total_duration >= args.max_duration:
+                    break
+                i += 1
+                clip_path, dur = render_scene(text, i)
+                clip_paths.append(clip_path)
+                scenes_with_durations.append((text, dur))
+                total_duration += dur
+                already_said += " " + text
+
+        print(f"Final narrated duration: {total_duration:.1f}s "
               f"({'fits' if total_duration <= 59 else 'EXCEEDS'} Shorts length)")
 
         combined_path = os.path.join(workdir, "combined.mp4")
