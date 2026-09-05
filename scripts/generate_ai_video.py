@@ -230,11 +230,14 @@ def generate_narration(text, path, voice):
     asyncio.run(tts_save(text, path, voice))
 
 
-def generate_image(prompt, path, style_suffix=", vertical, cinematic, high detail"):
+def generate_image(prompt, path,
+                    style_suffix=(", cinematic documentary photography, consistent "
+                                  "natural lighting, ultra realistic, sharp focus, "
+                                  "8k detail, no text, no watermark, no logo")):
     url = ("https://image.pollinations.ai/prompt/" +
            urllib.parse.quote(prompt + style_suffix) +
-           f"?width={IMG_W}&height={IMG_H}&nologo=true")
-    r = requests.get(url, timeout=120)
+           f"?width={IMG_W}&height={IMG_H}&nologo=true&model=flux&enhance=true")
+    r = requests.get(url, timeout=180)
     r.raise_for_status()
     with open(path, "wb") as f:
         f.write(r.content)
