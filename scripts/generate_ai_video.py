@@ -22,6 +22,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.parse
 
 import edge_tts
@@ -70,7 +71,7 @@ def pick_gemini_model(api_key):
     return chosen
 
 
-def call_gemini(prompt_text, _retry_model=None):
+def call_gemini(prompt_text, _retry_model=None, _retries_left=3):
     """Primary LLM source, if GEMINI_API_KEY is set. Free tier, no card required
     (get a key at https://aistudio.google.com/apikey). Returns None if unavailable
     or on any error — caller falls back to the next source.
@@ -79,6 +80,8 @@ def call_gemini(prompt_text, _retry_model=None):
     is retired, their 404 response names the replacement directly (e.g. "use
     models/gemini-3.6-flash instead") — so on a 404 we parse that out and
     retry once with the suggested model, caching it for the rest of this run.
+    A 503 ("high demand") is transient, not a real failure, so that gets a
+    few short retries with backoff before giving up.
     """
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
@@ -103,7 +106,14 @@ def call_gemini(prompt_text, _retry_model=None):
             if replacement:
                 print(f"Gemini: {model_path} unavailable, Google suggested {replacement} — retrying with it")
                 _GEMINI_MODEL_CACHE["name"] = replacement
-                return call_gemini(prompt_text, _retry_model=replacement)
+                return call_gemini(prompt_text, _retry_model=replacement, _retries_left=_retries_left)
+
+        if r.status_code == 503 and _retries_left > 0:
+            wait = {3: 5, 2: 15, 1: 30}.get(_retries_left, 5)
+            print(f"Gemini: high demand (503), waiting {wait}s and retrying "
+                  f"({_retries_left} attempt(s) left)...")
+            time.sleep(wait)
+            return call_gemini(prompt_text, _retry_model=_retry_model, _retries_left=_retries_left - 1)
 
         if r.status_code != 200:
             print(f"Gemini error response: {r.text[:500]}")
