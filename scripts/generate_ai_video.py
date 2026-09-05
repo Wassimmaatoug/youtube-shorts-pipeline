@@ -186,6 +186,36 @@ def generate_more_facts(topic, already_said, target_words=60):
     return call_llm(prompt) or ""
 
 
+def generate_description(topic, script):
+    """A short, hook-driven description written from the video's own content —
+    no meta-commentary about how it was made."""
+    prompt = (
+        f"Write a short, engaging YouTube description (2-3 sentences) for a short "
+        f"video about: {topic}. Make it hook-driven and curiosity-inducing for a "
+        f"general audience. No hashtags, no more than one emoji if it feels natural, "
+        f"and never mention that this is AI-generated or reference a 'script' or "
+        f"'prompt' — write it as a real creator would. Base it on this narration:\n{script}"
+    )
+    text = call_llm(prompt)
+    if text:
+        return text.strip()
+    # Fallback if every LLM source is down: use the script's own opening lines
+    # rather than any meta-label.
+    sentences = split_scenes(script)
+    return " ".join(sentences[:2]) if sentences else topic
+
+
+def generate_hashtags(topic, extra=("#Shorts",)):
+    words = [w for w in re.findall(r"[A-Za-z]+", topic) if len(w) > 2]
+    tags = list(extra) + [f"#{w.capitalize()}" for w in words[:3]]
+    seen, ordered = set(), []
+    for t in tags:
+        if t.lower() not in seen:
+            seen.add(t.lower())
+            ordered.append(t)
+    return " ".join(ordered)
+
+
 def split_scenes(script):
     sentences = re.split(r"(?<=[.!?])\s+", script.strip())
     return [s.strip() for s in sentences if s.strip()]
@@ -377,8 +407,9 @@ def main():
         title = args.prompt.strip()[:90]
         if total_duration <= 59:
             title += " #Shorts"
-        desc = (f"AI-generated video.\nPrompt: {args.prompt}\n\n"
-                f"Script:\n{script}")
+        description_text = generate_description(args.prompt, script)
+        hashtags = generate_hashtags(args.prompt)
+        desc = f"{description_text}\n\n{hashtags}"
         video_id = upload_short(final_path, title, desc, privacy=args.privacy)
         print(f"Uploaded: https://youtube.com/watch?v={video_id}")
     finally:
