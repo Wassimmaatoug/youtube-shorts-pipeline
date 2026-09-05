@@ -9,6 +9,9 @@ on:
       voice:
         description: "edge-tts voice (e.g. en-US-AriaNeural, en-GB-RyanNeural, fr-FR-DeniseNeural)"
         default: "en-US-AriaNeural"
+      min_duration:
+        description: "Minimum video length in seconds"
+        default: "50"
       privacy:
         description: "unlisted | public | private"
         default: "unlisted"
@@ -39,4 +42,5 @@ jobs:
           python scripts/generate_ai_video.py \
             --prompt "${{ github.event.inputs.prompt }}" \
             --voice "${{ github.event.inputs.voice }}" \
+            --min-duration "${{ github.event.inputs.min_duration }}" \
             --privacy "${{ github.event.inputs.privacy }}"
