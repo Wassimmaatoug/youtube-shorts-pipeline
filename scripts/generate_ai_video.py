@@ -230,24 +230,53 @@ def srt_timestamp(seconds):
     return f"{h:02}:{m:02}:{s:02},{ms:03}"
 
 
-def build_srt(scenes_with_durations, out_path):
+def chunk_words(text, words_per_chunk=4):
+    """Split a sentence into short groups of words for punchy, one-idea-at-
+    a-time captions instead of dumping the whole sentence on screen at once."""
+    words = text.split()
+    return [" ".join(words[i:i + words_per_chunk]) for i in range(0, len(words), words_per_chunk)]
+
+
+def build_srt(scenes_with_durations, out_path, words_per_chunk=4):
     lines = []
+    idx = 1
     t = 0.0
-    for i, (text, dur) in enumerate(scenes_with_durations, 1):
-        start, end = t, t + dur
-        lines.append(str(i))
-        lines.append(f"{srt_timestamp(start)} --> {srt_timestamp(end)}")
-        lines.append(text)
-        lines.append("")
-        t = end
+    for text, dur in scenes_with_durations:
+        chunks = chunk_words(text, words_per_chunk)
+        if not chunks:
+            t += dur
+            continue
+        total_words = sum(len(c.split()) for c in chunks)
+        for c in chunks:
+            # Split this scene's duration across chunks proportional to word
+            # count, as a rough approximation of natural speech timing.
+            share = len(c.split()) / total_words if total_words else 1 / len(chunks)
+            chunk_dur = dur * share
+            start, end = t, t + chunk_dur
+            lines.append(str(idx))
+            idx += 1
+            lines.append(f"{srt_timestamp(start)} --> {srt_timestamp(end)}")
+            lines.append(c)
+            lines.append("")
+            t = end
     with open(out_path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
 
 
-def burn_captions(video_path, srt_path, out_path):
+def burn_captions(video_path, srt_path, out_path, video_w=IMG_W, video_h=IMG_H):
     srt_escaped = srt_path.replace("\\", "/").replace(":", "\\:")
-    vf = (f"subtitles={srt_escaped}:force_style='FontSize=14,PrimaryColour=&H00FFFFFF,"
-          f"OutlineColour=&H00000000,BorderStyle=3,Outline=1,Alignment=2,MarginV=80'")
+    # BorderStyle=1 = outlined text with shadow, no background box (BorderStyle=3
+    # was the earlier mistake — that's what drew the big opaque black rectangle).
+    # PlayResX/Y must match the actual video size, or libass falls back to a tiny
+    # internal default canvas and wildly over-scales the font.
+    style = (
+        f"FontName=Arial,FontSize=68,Bold=1,"
+        f"PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,"
+        f"BorderStyle=1,Outline=4,Shadow=1,"
+        f"Alignment=2,MarginV=220,"
+        f"PlayResX={video_w},PlayResY={video_h}"
+    )
+    vf = f"subtitles={srt_escaped}:force_style='{style}'"
     run(["ffmpeg", "-y", "-i", video_path, "-vf", vf,
          "-c:a", "copy", out_path])
 
