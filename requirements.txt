@@ -3,3 +3,5 @@ google-api-python-client>=2.140.0
 google-auth>=2.32.0
 google-auth-oauthlib>=1.2.1
 feedparser>=6.0.11
+edge-tts>=6.1.0
+requests>=2.32.0
