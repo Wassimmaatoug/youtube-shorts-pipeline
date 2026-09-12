@@ -1,0 +1,43 @@
+name: Generate Stickman Explainer Video
+
+on:
+  workflow_dispatch:
+    inputs:
+      topic:
+        description: "What should the video explain?"
+        required: true
+      voice:
+        description: "edge-tts voice"
+        default: "en-US-AriaNeural"
+      privacy:
+        description: "unlisted | public | private"
+        default: "unlisted"
+
+jobs:
+  generate-and-upload:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install ffmpeg (with libass for captions)
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Install Python deps
+        run: pip install -r requirements.txt
+
+      - name: Generate and upload stickman video
+        env:
+          YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
+          YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
+          YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          python scripts/generate_stickman_video.py \
+            --topic "${{ github.event.inputs.topic }}" \
+            --voice "${{ github.event.inputs.voice }}" \
+            --privacy "${{ github.event.inputs.privacy }}"
