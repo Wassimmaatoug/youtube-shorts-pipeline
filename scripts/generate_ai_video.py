@@ -230,6 +230,37 @@ def generate_narration(text, path, voice):
     asyncio.run(tts_save(text, path, voice))
 
 
+def fetch_and_validate_image(url, path, min_w=400, min_h=225, max_attempts=3):
+    """Downloads an image and verifies it's actually a usable image before
+    accepting it — catches the case where the generator returns something
+    tiny, corrupt, or an error placeholder, which previously got silently
+    force-stretched to fill the video canvas and came out as unrecognizable
+    blur. Retries the same URL a couple of times (transient generation
+    hiccups), then raises loudly instead of ever proceeding with garbage."""
+    from PIL import Image
+    last_error = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            r = requests.get(url, timeout=180)
+            r.raise_for_status()
+            with open(path, "wb") as f:
+                f.write(r.content)
+            with Image.open(path) as img:
+                img.verify()
+            with Image.open(path) as img:
+                w, h = img.size
+            if w < min_w or h < min_h:
+                raise ValueError(f"Image too small ({w}x{h}), expected at least {min_w}x{min_h}")
+            return  # success
+        except Exception as e:
+            last_error = e
+            print(f"Image fetch/validation attempt {attempt} failed: {e}")
+    raise RuntimeError(
+        f"Could not get a valid image after {max_attempts} attempts "
+        f"(last error: {last_error}). Stopping rather than using a broken image."
+    )
+
+
 def generate_image(prompt, path,
                     style_suffix=(", cinematic documentary photography, consistent "
                                   "natural lighting, ultra realistic, sharp focus, "
@@ -237,10 +268,7 @@ def generate_image(prompt, path,
     url = ("https://image.pollinations.ai/prompt/" +
            urllib.parse.quote(prompt + style_suffix) +
            f"?width={IMG_W}&height={IMG_H}&nologo=true&model=flux&enhance=true")
-    r = requests.get(url, timeout=180)
-    r.raise_for_status()
-    with open(path, "wb") as f:
-        f.write(r.content)
+    fetch_and_validate_image(url, path, min_w=IMG_W * 0.5, min_h=IMG_H * 0.5)
 
 
 def make_scene_clip(image_path, audio_path, duration, out_path):
