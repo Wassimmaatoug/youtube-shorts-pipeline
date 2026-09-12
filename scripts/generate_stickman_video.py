@@ -22,6 +22,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 from generate_ai_video import (  # noqa: E402
     call_llm, generate_narration, get_duration, run,
     build_srt, burn_captions, generate_description, generate_hashtags,
+    fetch_and_validate_image,
 )
 
 STICK_W, STICK_H = 1920, 1080
@@ -66,11 +67,11 @@ shape:
 
 
 def generate_stickman_image(base_style, pose_description, path):
-    """Reimplemented here (rather than reusing generate_ai_video's version)
-    because this needs 16:9 dimensions and a fixed-character illustration
-    style instead of photorealistic scenes."""
+    """Uses the shared validated fetcher (see generate_ai_video.py) so a
+    broken/tiny image from the generator raises loudly instead of getting
+    silently force-stretched into an unrecognizable blur, which is what
+    happened before this fix."""
     import urllib.parse
-    import requests
     full_prompt = (
         f"Use the same stickman character as before. {base_style} {pose_description} "
         f"Clean minimal white background, flat vector illustration style, "
@@ -79,10 +80,7 @@ def generate_stickman_image(base_style, pose_description, path):
     url = ("https://image.pollinations.ai/prompt/" +
            urllib.parse.quote(full_prompt) +
            f"?width={STICK_W}&height={STICK_H}&nologo=true&model=flux&enhance=true")
-    r = requests.get(url, timeout=180)
-    r.raise_for_status()
-    with open(path, "wb") as f:
-        f.write(r.content)
+    fetch_and_validate_image(url, path, min_w=STICK_W * 0.5, min_h=STICK_H * 0.5)
 
 
 def make_scene_clip(image_path, audio_path, duration, out_path, zoom_in=True):
